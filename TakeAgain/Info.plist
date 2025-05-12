@@ -40,5 +40,7 @@
     <string>영상에 오디오를 녹음하기 위해 마이크가 필요합니다.</string>
     <key>NSPhotoLibraryAddUsageDescription</key>
     <string>촬영한 영상을 앨범에 저장하기 위해 사용됩니다.</string>
+    <key>NSPhotoLibraryUsageDescription</key>
+    <string>앨범 썸네일을 표시하기 위해 사진 접근 권한이 필요합니다.</string>
 </dict>
 </plist>
