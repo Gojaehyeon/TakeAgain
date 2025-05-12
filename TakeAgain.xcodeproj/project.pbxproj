@@ -29,9 +29,22 @@
 		2420AC412DCCBBEB00A0B4E4 /* TakeAgainUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = TakeAgainUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		2420AC602DCCC0A200A0B4E4 /* Exceptions for "TakeAgain" folder in "TakeAgain" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 2420AC242DCCBBEA00A0B4E4 /* TakeAgain */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		2420AC272DCCBBEA00A0B4E4 /* TakeAgain */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				2420AC602DCCC0A200A0B4E4 /* Exceptions for "TakeAgain" folder in "TakeAgain" target */,
+			);
 			path = TakeAgain;
 			sourceTree = "<group>";
 		};
@@ -398,7 +411,8 @@
 				DEVELOPMENT_ASSET_PATHS = "\"TakeAgain/Preview Content\"";
 				DEVELOPMENT_TEAM = RP5GZ99V95;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "$(SRCROOT)/TakeAgain/Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -427,7 +441,8 @@
 				DEVELOPMENT_ASSET_PATHS = "\"TakeAgain/Preview Content\"";
 				DEVELOPMENT_TEAM = RP5GZ99V95;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = "$(SRCROOT)/TakeAgain/Info.plist";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
