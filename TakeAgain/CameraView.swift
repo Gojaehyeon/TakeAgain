@@ -10,60 +10,73 @@ import AVFoundation
 import Photos
 
 struct CameraView: View {
-@StateObject private var cameraManager = CameraManager()
-@State private var isRecording = false
-@State private var recordingTime: TimeInterval = 0
-private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
-@State private var dragTranslation: CGSize = .zero
-@State private var didTriggerHaptic = false
-@State private var dragPulseTick: Int = 0
-@State private var dragReturn: CGFloat = 0
-@State private var isDragging = false
-@State private var recentImage: UIImage?
-@State private var showDeleteWarning = false
-@AppStorage("hasSeenDeleteWarning") private var hasSeenDeleteWarning: Bool = false
+    @StateObject private var cameraManager = CameraManager()
+    @State private var isRecording = false
+    @State private var recordingTime: TimeInterval = 0
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var dragTranslation: CGSize = .zero
+    @State private var didTriggerHaptic = false
+    @State private var dragPulseTick: Int = 0
+    @State private var dragReturn: CGFloat = 0
+    @State private var isDragging = false
+    @State private var recentImage: UIImage?
+    @State private var showDeleteWarning = false
+    @AppStorage("hasSeenDeleteWarning") private var hasSeenDeleteWarning: Bool = false
+    @State private var selectedZoom: CGFloat = 1.0
+    @State private var currentZoomFactor: CGFloat = 1.0
 
-var body: some View {
-    ZStack {
-        CameraPreview(session: cameraManager.session)
-            .ignoresSafeArea()
+    var body: some View {
+        ZStack {
+            CameraPreview(session: cameraManager.session)
+                .ignoresSafeArea()
+                .gesture(
+                    MagnificationGesture()
+                        .onChanged { value in
+                            guard cameraManager.currentCameraPosition == .back else { return }
+                            let newZoom = currentZoomFactor * value
+                            let clamped = min(max(newZoom, 0.5), 6.0)
+                            cameraManager.setZoomFactor(clamped)
+                        }
+                        .onEnded { value in
+                            guard cameraManager.currentCameraPosition == .back else { return }
+                            currentZoomFactor = min(max(currentZoomFactor * value, 0.5), 6.0)
+                        }
+                )
 
-        // Top overlay: Native-style recording timer bar
-        VStack(spacing: 0) {
-            if isRecording {
-                HStack(spacing: 8) {
-                    Circle()
-                        .fill(Color.red)
-                        .frame(width: 10, height: 10)
-                    Text(String(format: "%02d:%02d:%02d", Int(recordingTime) / 3600, Int(recordingTime) / 60 % 60, Int(recordingTime) % 60))
-                        .font(.system(size: 16, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white)
+            // Top overlay: Native-style recording timer bar
+            VStack(spacing: 0) {
+                if isRecording {
+                    HStack(spacing: 8) {
+                        Circle()
+                            .fill(Color.red)
+                            .frame(width: 10, height: 10)
+                        Text(String(format: "%02d:%02d:%02d", Int(recordingTime) / 3600, Int(recordingTime) / 60 % 60, Int(recordingTime) % 60))
+                            .font(.system(size: 16, weight: .medium, design: .monospaced))
+                            .foregroundColor(.white)
+                    }
+                    .padding(.vertical, 6)
+                    .padding(.horizontal, 14)
+                    .background(Color.black.opacity(0.6))
+                    .clipShape(Capsule())
+                    .padding(.top, 30)
                 }
-                .padding(.vertical, 6)
-                .padding(.horizontal, 14)
-                .background(Color.black.opacity(0.6))
-                .clipShape(Capsule())
-                .padding(.top, 30)
+                Spacer()
             }
-            Spacer()
-        }
 
-        // Middle: zoom selector and bottom bar
-        VStack {
-            Spacer()
-//                HStack(spacing: 30) {
-//                    ForEach(["0.5x", "1x", "2x"], id: \.self) { zoom in
-//                        Text(zoom)
-//                            .foregroundColor(.white)
-//                            .padding(8)
-//                            .background(Color.black.opacity(0.3))
-//                            .clipShape(Circle())
-//                    }
-//                }
-//                .padding(.bottom, 100)
+            // Middle: zoom selector and bottom bar
+            VStack {
+                Spacer()
 
-            // Bottom bar
-            HStack {
+                // Zoom selector and semicircular dial for rear camera (always show for rear)
+                if cameraManager.currentCameraPosition == .back {
+                    ZoomPicker(cameraManager: cameraManager, availableZooms: cameraManager.availableZoomFactors, selectedZoom: $selectedZoom) { newZoom in
+                        currentZoomFactor = newZoom
+                        cameraManager.setZoomFactor(newZoom)
+                    }
+                }
+
+                // Bottom bar
+                HStack {
                 if !isRecording {
                     if let image = recentImage {
                         Image(uiImage: image)
@@ -241,7 +254,7 @@ var body: some View {
                     }) {
                         ZStack {
                             Circle()
-                                .fill(Color.white.opacity(0.3))
+                                .fill(Color.black.opacity(0.4))
                                 .frame(width: 50, height: 50)
                             Image(systemName: "arrow.trianglehead.2.clockwise.rotate.90")
                                 .resizable()
@@ -262,6 +275,15 @@ var body: some View {
             isRecording = false
         }
         fetchLatestPhotoThumbnail()
+        selectedZoom = 1.0
+        currentZoomFactor = 1.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            if let first = cameraManager.availableZoomFactors.first {
+                selectedZoom = first
+                currentZoomFactor = first
+                cameraManager.setZoomFactor(first)
+            }
+        }
     }
     .onReceive(timer) { _ in
         if isRecording {
@@ -296,71 +318,129 @@ func fetchLatestPhotoThumbnail() {
 }
 
 final class CameraManager: NSObject, ObservableObject, AVCaptureFileOutputRecordingDelegate {
-let session = AVCaptureSession()
-private let movieOutput = AVCaptureMovieFileOutput()
-var outputURL: URL?
-var onRecordingFinished: ((URL) -> Void)?
-private var currentCameraPosition: AVCaptureDevice.Position = .back
+    let session = AVCaptureSession()
+    private let movieOutput = AVCaptureMovieFileOutput()
+    var outputURL: URL?
+    var onRecordingFinished: ((URL) -> Void)?
+    @Published var availableZoomFactors: [CGFloat] = [1.0, 2.0]
+    @Published var currentCameraPosition: AVCaptureDevice.Position = .back
 
-func configure() {
-    DispatchQueue.global(qos: .userInitiated).async {
-        self.session.beginConfiguration()
+    func configure() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            self.session.beginConfiguration()
+            
+            // Discover appropriate device
+            let discoverySession = AVCaptureDevice.DiscoverySession(
+                deviceTypes: [
+                    .builtInUltraWideCamera,
+                    .builtInWideAngleCamera,
+                    .builtInTelephotoCamera,
+                    .builtInDualCamera,
+                    .builtInTripleCamera
+                ],
+                mediaType: .video,
+                position: self.currentCameraPosition
+            )
+            
+            guard let videoDevice = discoverySession.devices.first,
+                  let videoInput = try? AVCaptureDeviceInput(device: videoDevice),
+                  self.session.canAddInput(videoInput) else {
+                print("카메라 설정 실패")
+                return
+            }
 
-        guard let videoDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: self.currentCameraPosition),
-              let videoInput = try? AVCaptureDeviceInput(device: videoDevice),
-              self.session.canAddInput(videoInput) else {
-            print("카메라 설정 실패")
-            return
-        }
+            self.session.addInput(videoInput)
+            
+            // Use device model to determine zoom factors
+            if videoDevice.position == .back {
+                // Print the device model before setting zoom factors
+                print("📱 현재 기기 모델:", UIDevice.current.modelName)
+                self.availableZoomFactors = self.zoomFactorsForDeviceModel()
+            }
 
-        self.session.addInput(videoInput)
+            if self.session.canAddOutput(self.movieOutput) {
+                self.session.addOutput(self.movieOutput)
+            }
 
-        if self.session.canAddOutput(self.movieOutput) {
-            self.session.addOutput(self.movieOutput)
-        }
-
-        self.session.commitConfiguration()
-        self.session.startRunning()
-    }
-}
-
-func switchCamera() {
-    session.beginConfiguration()
-    session.inputs.forEach { session.removeInput($0) }
-
-    currentCameraPosition = currentCameraPosition == .back ? .front : .back
-
-    if let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentCameraPosition),
-       let input = try? AVCaptureDeviceInput(device: device),
-       session.canAddInput(input) {
-        session.addInput(input)
-    }
-
-    session.commitConfiguration()
-}
-
-func startRecording() {
-    let tempDir = FileManager.default.temporaryDirectory
-    let fileURL = tempDir.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
-    outputURL = fileURL
-    movieOutput.startRecording(to: fileURL, recordingDelegate: self)
-}
-
-func stopRecording() {
-    movieOutput.stopRecording()
-}
-
-func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
-    print("녹화 종료: \(outputFileURL)")
-    DispatchQueue.main.async {
-        let asset = AVAsset(url: outputFileURL)
-        if asset.isPlayable {
-            self.onRecordingFinished?(outputFileURL)
-        } else {
-            print("녹화된 파일이 재생 불가능한 상태입니다.")
+            self.session.commitConfiguration()
+            self.session.startRunning()
         }
     }
-}
+    // Helper to return predefined zoom factors per device model
+    func zoomFactorsForDeviceModel() -> [CGFloat] {
+        let model = UIDevice.current.modelName
+
+        switch model {
+        case "iPhone 16 Pro", "iPhone 16 Pro Max",
+             "iPhone 15 Pro", "iPhone 15 Pro Max",
+             "iPhone 14 Pro", "iPhone 13 Pro":
+            return [1.0, 3.0, 6.0]
+
+        case "iPhone 16", "iPhone 16 Plus",
+             "iPhone 15", "iPhone 15 Plus",
+             "iPhone 14", "iPhone 13", "iPhone 12":
+            return [1.0, 2.0, 5.0]
+
+        case "iPhone SE":
+            return [1.0, 2.0]
+
+        default:
+            return [1.0, 2.0]
+        }
+    }
+
+    func switchCamera() {
+        session.beginConfiguration()
+        session.inputs.forEach { session.removeInput($0) }
+
+        currentCameraPosition = currentCameraPosition == .back ? .front : .back
+
+        if let device = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: currentCameraPosition),
+           let input = try? AVCaptureDeviceInput(device: device),
+           session.canAddInput(input) {
+            session.addInput(input)
+        }
+
+        session.commitConfiguration()
+    }
+
+    func startRecording() {
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileURL = tempDir.appendingPathComponent(UUID().uuidString).appendingPathExtension("mov")
+        outputURL = fileURL
+        movieOutput.startRecording(to: fileURL, recordingDelegate: self)
+    }
+
+    func stopRecording() {
+        movieOutput.stopRecording()
+    }
+
+    func setZoomFactor(_ factor: CGFloat) {
+        guard let device = session.inputs
+            .compactMap({ $0 as? AVCaptureDeviceInput })
+            .first?.device, device.position == .back else { return }
+
+        do {
+            try device.lockForConfiguration()
+            device.videoZoomFactor = min(max(factor, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
+            device.unlockForConfiguration()
+        } catch {
+            print("Zoom 설정 실패: \(error.localizedDescription)")
+        }
+    }
+
+    func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
+        print("녹화 종료: \(outputFileURL)")
+        DispatchQueue.main.async {
+            let asset = AVAsset(url: outputFileURL)
+            if asset.isPlayable {
+                self.onRecordingFinished?(outputFileURL)
+            } else {
+                print("녹화된 파일이 재생 불가능한 상태입니다.")
+            }
+        }
+    }
+    
 }
 
 struct CameraPreview: UIViewRepresentable {
@@ -378,3 +458,106 @@ func makeUIView(context: Context) -> UIView {
 func updateUIView(_ uiView: UIView, context: Context) {}
 }
 
+
+#Preview {
+    CameraView()
+}
+
+
+
+
+// MARK: - Horizontal Native-style Zoom Picker
+struct ZoomPicker: View {
+    var cameraManager: CameraManager
+    var availableZooms: [CGFloat]
+    @Binding var selectedZoom: CGFloat
+    var onZoomChange: (CGFloat) -> Void
+
+    var body: some View {
+        HStack(alignment: .center, spacing: 4) {
+            ForEach(availableZooms, id: \.self) { zoom in
+                ZStack {
+                    let displayText: String = {
+                        if abs(selectedZoom - zoom) < 0.05 {
+                            return zoom == floor(zoom) ? String(format: "%.0fx", zoom) : String(format: "%.1fx", zoom)
+                        } else {
+                            // Unselected: show .5 for 0.5, 1 for 1.0, etc.
+                            if zoom == floor(zoom) {
+                                return String(format: "%.0f", zoom)
+                            } else {
+                                return String(format: ".%d", Int((zoom * 10).truncatingRemainder(dividingBy: 10)))
+                            }
+                        }
+                    }()
+                    Text(displayText)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(abs(selectedZoom - zoom) < 0.05 ? .yellow : .white)
+                        .frame(width: abs(selectedZoom - zoom) < 0.05 ? 40 : 26, height: abs(selectedZoom - zoom) < 0.05 ? 40 : 26)
+                        .background(
+                            Circle()
+                                .fill(abs(selectedZoom - zoom) < 0.05 ? Color.black : Color.black.opacity(0.5))
+                        )
+                }
+                .frame(width: 40, height: 40)
+                .animation(.easeInOut(duration: 0.2), value: selectedZoom)
+                .onTapGesture {
+                    withAnimation(.easeInOut) {
+                        selectedZoom = zoom
+                        onZoomChange(zoom)
+                    }
+                }
+            }
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 6)
+        .background(
+            Capsule()
+                .fill(Color.black.opacity(0.3))
+        )
+        .offset(y: -12)
+    }
+}
+
+
+
+
+// MARK: - UIDevice extension for model name
+import UIKit
+
+extension UIDevice {
+    var modelName: String {
+        var systemInfo = utsname()
+        uname(&systemInfo)
+        let machineMirror = Mirror(reflecting: systemInfo.machine)
+        let identifier = machineMirror.children.reduce("") { id, element in
+            guard let value = element.value as? Int8, value != 0 else { return id }
+            return id + String(UnicodeScalar(UInt8(value)))
+        }
+
+        return mapToDevice(identifier: identifier)
+    }
+
+    private func mapToDevice(identifier: String) -> String {
+        switch identifier {
+        case "iPhone17,1": return "iPhone 16 Pro Max"
+        case "iPhone17,2": return "iPhone 16 Pro"
+        case "iPhone17,3": return "iPhone 16"
+        case "iPhone17,4": return "iPhone 16 Plus"
+
+        case "iPhone16,1": return "iPhone 15 Pro"
+        case "iPhone16,2": return "iPhone 15 Pro Max"
+        case "iPhone16,3": return "iPhone 15"
+        case "iPhone16,4": return "iPhone 15 Plus"
+
+        case "iPhone15,2", "iPhone15,3": return "iPhone 14 Pro"
+        case "iPhone15,4", "iPhone15,5": return "iPhone 14"
+
+        case "iPhone14,2", "iPhone14,3": return "iPhone 13 Pro"
+        case "iPhone14,4", "iPhone14,5": return "iPhone 13"
+
+        case "iPhone13,2": return "iPhone 12"
+        case "iPhone12,8": return "iPhone SE"
+        default: return identifier
+        }
+    }
+}
