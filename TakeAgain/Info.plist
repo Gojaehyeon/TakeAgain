@@ -18,22 +18,6 @@
     <string>1.0</string>
     <key>CFBundleVersion</key>
     <string>1</string>
-    <key>UILaunchStoryboardName</key>
-    <string>LaunchScreen</string>
-    <key>UIMainStoryboardFile</key>
-    <string></string>
-    <key>UIRequiredDeviceCapabilities</key>
-    <array>
-        <string>arm64</string>
-    </array>
-    <key>UISupportedInterfaceOrientations</key>
-    <array>
-        <string>UIInterfaceOrientationPortrait</string>
-        <string>UIInterfaceOrientationLandscapeLeft</string>
-        <string>UIInterfaceOrientationLandscapeRight</string>
-    </array>
-
-    <!-- 🔒 추가 권한들 -->
     <key>NSCameraUsageDescription</key>
     <string>이 앱은 카메라를 사용하여 영상을 촬영합니다.</string>
     <key>NSMicrophoneUsageDescription</key>
@@ -42,5 +26,17 @@
     <string>촬영한 영상을 앨범에 저장하기 위해 사용됩니다.</string>
     <key>NSPhotoLibraryUsageDescription</key>
     <string>앨범 썸네일을 표시하기 위해 사진 접근 권한이 필요합니다.</string>
+    <key>UILaunchStoryboardName</key>
+    <string>LaunchScreen</string>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array>
+        <string>arm64</string>
+    </array>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+    </array>
+    <key>UIRequiresFullScreen</key>
+    <true/>
 </dict>
 </plist>
