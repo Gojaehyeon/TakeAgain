@@ -24,10 +24,20 @@ struct CameraView: View {
     @AppStorage("hasSeenDeleteWarning") private var hasSeenDeleteWarning: Bool = false
     @State private var selectedZoom: CGFloat = 1.0
     @State private var currentZoomFactor: CGFloat = 1.0
+    @State private var focusPoint: CGPoint? = nil
+    @State private var focusScale: CGFloat = 1.5
+    // Step 1: Add new state properties for focus animation
+    @State private var focusOpacity: Double = 1.0
+    @State private var showBlink: Bool = false
+    // Exposure UI state
+    @State private var showExposureUI: Bool = false
+    @State private var exposureValue: Float = 0.0
+    // Track tap-to-focus state for exposure drag
+    @State private var didFocusTap: Bool = false
 
     var body: some View {
         ZStack {
-            CameraPreview(session: cameraManager.session)
+            CameraPreview(session: cameraManager.session, cameraManager: cameraManager)
                 .ignoresSafeArea()
                 .gesture(
                     MagnificationGesture()
@@ -42,6 +52,82 @@ struct CameraView: View {
                             currentZoomFactor = min(max(currentZoomFactor * value, 0.5), 6.0)
                         }
                 )
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            guard didFocusTap else { return }
+                            let delta = Float(-value.translation.height / 100)
+                            let newValue = max(min(exposureValue + delta, 2.0), -2.0)
+                            exposureValue = newValue
+                            cameraManager.setExposure(value: newValue)
+                            showExposureUI = true
+                        }
+                        .onEnded { value in
+                            let location = value.location
+                            focusPoint = location
+                            showExposureUI = true
+                            exposureValue = 0.0
+                            didFocusTap = true
+
+                            DispatchQueue.main.async {
+                                focusScale = 1.5
+                                focusOpacity = 1.0
+                                showBlink = false
+
+                                cameraManager.focus(at: location)
+
+                                withAnimation(.easeOut(duration: 0.25)) {
+                                    focusScale = 1.0
+                                }
+
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                                    withAnimation(.easeInOut(duration: 0.15)) {
+                                        showBlink = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                                        withAnimation(.easeInOut(duration: 0.15)) {
+                                            showBlink = false
+                                        }
+                                    }
+                                }
+
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                                    withAnimation(.easeOut(duration: 1.0)) {
+                                        focusOpacity = 0.5
+                                    }
+                                }
+
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 7.0) {
+                                    focusPoint = nil
+                                    focusOpacity = 1.0
+                                    didFocusTap = false
+                                }
+                            }
+                        }
+                )
+
+            // Step 3: Enhanced focus rectangle view
+            if let point = focusPoint {
+                Rectangle()
+                    .stroke(Color.yellow, lineWidth: showBlink ? 2 : 1)
+                    .frame(width: 80, height: 80)
+                    .scaleEffect(focusScale)
+                    .opacity(focusOpacity)
+                    .position(point)
+            }
+
+            // Exposure UI
+            /*
+            if showExposureUI, let point = focusPoint {
+                ExposureControlView(
+                    exposureValue: $exposureValue,
+                    onExposureChanged: { value in
+                        cameraManager.setExposure(value: value)
+                    },
+                    position: CGPoint(x: point.x + 60, y: point.y)
+                )
+            }
+            */
 
             // Top overlay: Native-style recording timer bar
             VStack(spacing: 0) {
@@ -319,6 +405,7 @@ func fetchLatestPhotoThumbnail() {
 
 final class CameraManager: NSObject, ObservableObject, AVCaptureFileOutputRecordingDelegate {
     let session = AVCaptureSession()
+    var previewLayer: AVCaptureVideoPreviewLayer?
     private let movieOutput = AVCaptureMovieFileOutput()
     var outputURL: URL?
     var onRecordingFinished: ((URL) -> Void)?
@@ -428,6 +515,63 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureFileOutputRecord
             print("Zoom 설정 실패: \(error.localizedDescription)")
         }
     }
+    func focus(at point: CGPoint) {
+        guard let previewLayer = self.previewLayer else {
+            print("❌ Preview layer 없음")
+            return
+        }
+
+        guard let device = session.inputs
+            .compactMap({ $0 as? AVCaptureDeviceInput })
+            .first?.device, device.isFocusPointOfInterestSupported else {
+            print("⚠️ 포커스 지원 안됨")
+            return
+        }
+
+        let focusPoint = previewLayer.captureDevicePointConverted(fromLayerPoint: point)
+
+        do {
+            try device.lockForConfiguration()
+            device.focusPointOfInterest = focusPoint
+            device.focusMode = .autoFocus
+            if device.isExposurePointOfInterestSupported {
+                device.exposurePointOfInterest = focusPoint
+                device.exposureMode = .autoExpose
+            }
+            device.unlockForConfiguration()
+            print("🎯 포커스 위치:", focusPoint)
+        } catch {
+            print("포커스 설정 실패:", error.localizedDescription)
+        }
+    }
+    func setExposure(value: Float) {
+        guard let device = session.inputs
+            .compactMap({ $0 as? AVCaptureDeviceInput })
+            .first?.device else {
+            print("노출 조절: device 없음")
+            return
+        }
+
+        do {
+            try device.lockForConfiguration()
+
+            if device.isExposureModeSupported(.custom) {
+                print("노출 모드: .custom 사용")
+                device.setExposureTargetBias(value) { _ in }
+            } else if device.isExposureModeSupported(.continuousAutoExposure) {
+                print("노출 모드: fallback to .continuousAutoExposure")
+                device.exposureMode = .continuousAutoExposure
+                let clamped = max(min(value, device.maxExposureTargetBias), device.minExposureTargetBias)
+                device.setExposureTargetBias(clamped) { _ in }
+            } else {
+                print("노출 조절 지원 안 함")
+            }
+
+            device.unlockForConfiguration()
+        } catch {
+            print("노출 설정 실패: \(error)")
+        }
+    }
 
     func fileOutput(_ output: AVCaptureFileOutput, didFinishRecordingTo outputFileURL: URL, from connections: [AVCaptureConnection], error: Error?) {
         print("녹화 종료: \(outputFileURL)")
@@ -444,13 +588,15 @@ final class CameraManager: NSObject, ObservableObject, AVCaptureFileOutputRecord
 }
 
 struct CameraPreview: UIViewRepresentable {
-let session: AVCaptureSession
+    let session: AVCaptureSession
+    let cameraManager: CameraManager
 
 func makeUIView(context: Context) -> UIView {
     let view = UIView()
     let previewLayer = AVCaptureVideoPreviewLayer(session: session)
     previewLayer.videoGravity = .resizeAspectFill
     previewLayer.frame = UIScreen.main.bounds
+    cameraManager.previewLayer = previewLayer
     view.layer.addSublayer(previewLayer)
     return view
 }
@@ -561,3 +707,6 @@ extension UIDevice {
         }
     }
 }
+
+
+
